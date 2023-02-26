@@ -1,0 +1,87 @@
+FROM debian:stable-slim
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt-get update
+RUN apt-get install gnupg software-properties-common wget -y 
+RUN wget -q https://packages.sury.org/php/apt.gpg -O- | apt-key add -
+RUN echo "deb https://packages.sury.org/php/ buster main" | tee /etc/apt/sources.list.d/php.list
+RUN wget http://mirrors.kernel.org/ubuntu/pool/main/libf/libffi/libffi6_3.2.1-8_amd64.deb
+RUN dpkg -i libffi6_3.2.1-8_amd64.deb
+RUN rm -R libffi6_3.2.1-8_amd64.deb
+
+# Apache 2.4 + PHP-7.0-FPM
+RUN apt-get update \
+    # Tools
+    && apt-get -y --no-install-recommends install \
+        curl \
+        ca-certificates \
+        nano \
+        zip \
+        unzip \
+        git \
+    # Supervisor
+    && apt-get -y --no-install-recommends install \
+        supervisor \
+    # Install Apache + PHP
+    && apt-get -y --no-install-recommends install \
+        apache2 \
+        php8.1-fpm php8.1-mysql php8.1-xml php8.1-gd php8.1-mbstring php8.1-bcmath php8.1-zip php-memcache \
+        php8.1-curl \
+    # Configure Apache + PHP
+    && a2enconf php8.1-fpm \
+    && a2enmod proxy \
+    && a2enmod proxy_fcgi \
+    && a2enmod rewrite \
+    # Clean
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
+RUN curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-release.list
+RUN apt-get update
+RUN ACCEPT_EULA=Y apt-get --no-install-recommends install -y msodbcsql17
+RUN ACCEPT_EULA=Y apt-get --no-install-recommends install -y mssql-tools
+RUN echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
+RUN apt-get --no-install-recommends install -y unixodbc-dev
+RUN apt-get --no-install-recommends install -y libgssapi-krb5-2
+RUN rm -rf /var/lib/apt/lists/*
+
+RUN chown -R www-data:www-data /var
+
+# Supervisor
+RUN mkdir -p /run/php/
+COPY config/supervisord/supervisord.conf /etc/supervisor/supervisord.conf
+COPY config/supervisord/apache.conf /etc/supervisor/conf.d/apache.conf
+COPY config/supervisord/php-fpm.conf /etc/supervisor/conf.d/php-fpm.conf
+
+# Apache Configuration
+COPY ./config/apache/000-default.conf /etc/apache2/sites-available/000-default.conf
+
+# PHP Configuration
+COPY config/php/php.ini /etc/php/8.1/fpm/php.ini
+COPY config/php/www.conf /etc/php/8.1/fpm/pool.d/www.conf
+
+COPY config/openssl/openssl.cnf /etc/ssl/openssl.cnf
+
+COPY config/extension/pdo_sqlsrv.so /usr/lib/php/20210902/pdo_sqlsrv.so	
+COPY config/extension/sqlsrv.so /usr/lib/php/20210902/sqlsrv.so	
+COPY config/extension/skywalking_agent.so /usr/lib/php/20210902/skywalking_agent.so	
+COPY config/extension/mongodb.so /usr/lib/php/20210902/mongodb.so
+COPY config/extension/redis.so /usr/lib/php/20210902/redis.so
+
+COPY config/extension/30-docker-php-ext-pdo_sqlsrv.ini /etc/php/8.1/fpm/conf.d/30-docker-php-ext-pdo_sqlsrv.ini	
+COPY config/extension/30-docker-php-ext-sqlsrv.ini /etc/php/8.1/fpm/conf.d/30-docker-php-ext-sqlsrv.ini	
+COPY config/extension/30-docker-php-ext-skywalking_agent.ini /etc/php/8.1/fpm/conf.d/30-docker-php-ext-skywalking_agent.ini	
+COPY config/extension/30-docker-php-ext-mongodb.ini /etc/php/8.1/fpm/conf.d/30-docker-php-ext-mongodb.ini	
+COPY config/extension/30-docker-php-ext-redis.ini /etc/php/8.1/fpm/conf.d/30-docker-php-ext-redis.ini	
+
+RUN mkdir -p /var/www/html
+COPY config/index.php /var/www/html/index.php
+
+# Startup script to change uid/gid (if environment variable passed) and start supervisord in foreground
+COPY config/start.sh /start.sh
+RUN chmod 755 /start.sh
+
+EXPOSE 80
+
+CMD ["/bin/bash", "/start.sh"]
