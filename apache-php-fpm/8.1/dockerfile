@@ -10,7 +10,6 @@ RUN wget http://mirrors.kernel.org/ubuntu/pool/main/libf/libffi/libffi6_3.2.1-8_
 RUN dpkg -i libffi6_3.2.1-8_amd64.deb
 RUN rm -R libffi6_3.2.1-8_amd64.deb
 
-# Apache 2.4 + PHP-7.0-FPM
 RUN apt-get update \
     # Tools
     && apt-get -y --no-install-recommends install \
